@@ -11,7 +11,7 @@ void PID::init(float kp, float ki, float kd, int minlimit, int maxlimit, float f
   this->filterAlpha = filterAlpha;
 }
 
-int PID::update(float velReq, float velActual, float dt) {
+int PID::update(float velReq, float velActual, float dt , bool coastflag) {
   unsigned long currentTime = micros();
 
   // if  motor stops to respond when a PID input is given conditions like stall, emergency stop and power loss
@@ -24,7 +24,7 @@ int PID::update(float velReq, float velActual, float dt) {
 
   float error = velReq - velActual;
 
-  if ((currentTime - noResponseTime) > 500000) {
+  if ((currentTime - noResponseTime) > 1000000) {
     errorIntegral = 0;
     errorDifferential = 0;
   } else {
@@ -35,6 +35,13 @@ int PID::update(float velReq, float velActual, float dt) {
   float value = (kp * error) + (ki * (errorIntegral)) + (kd * (errorDifferential));
   errorPrev = error;
   errorIntegral = constrain(errorIntegral, minlimit, maxlimit);
+  if (coastflag == 1){
+      errorIntegral = 0;
+      errorDifferential = 0;
+      return 0;
+  }
+  else{
+  return constrain(value, minlimit, maxlimit);       
+  }
 
-  return constrain(value, minlimit, maxlimit);
 }

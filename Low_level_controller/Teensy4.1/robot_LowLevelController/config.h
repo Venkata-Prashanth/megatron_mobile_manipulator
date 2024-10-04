@@ -34,13 +34,13 @@ MOTOR1  MOTOR2
 
 #define FILTERALPHA 0.95
 /* left motor PID gains */
-#define LEFT_k_p 45.5
-#define LEFT_k_i 371
+#define LEFT_k_p 15.61
+#define LEFT_k_i 108.2
 #define LEFT_k_d 0
 
 /* right motor PID gains */
-#define RIGHT_k_p 45.5
-#define RIGHT_k_i 371
+#define RIGHT_k_p 15.61
+#define RIGHT_k_i 108.2
 #define RIGHT_k_d 0
 
 /*IMU*/

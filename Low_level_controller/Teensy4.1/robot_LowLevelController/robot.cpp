@@ -17,6 +17,8 @@ void Robot::motorsInit(RoboClaw *roboclaw, long baudrate)
     this->roboclaw = roboclaw;
     this->baudrate = baudrate;
     this->roboclaw->begin(baudrate);
+    this->roboclaw->SetM1MaxCurrent(address, 2200);
+    this->roboclaw->SetM2MaxCurrent(address, 2200);
 }
 
 //Encoder initialization function
@@ -52,15 +54,9 @@ void Robot::getRobotVelocity(){
   velUpdateTime = (float)dt/1000000;
   prevVelTime = currentTime;
 
-
-  if(abs(leftEncCounts)< 25 && abs(leftEncCounts)< 25){
-    velActual.left = 0;
-    velActual.right = 0;
-  }
-  else {
-    velActual.left = (((float)leftEncCounts/encoderRes)*wheelRadius*PI*2)/velUpdateTime;
-    velActual.right = (((float)rightEncCounts/encoderRes)*wheelRadius*PI*2)/velUpdateTime;
-  }
+  velActual.left = (((float)leftEncCounts/encoderRes)*wheelRadius*PI*2)/velUpdateTime;
+  velActual.right = (((float)rightEncCounts/encoderRes)*wheelRadius*PI*2)/velUpdateTime;
+  
  
 }
 
@@ -114,7 +110,7 @@ void Robot::updateOdometryData(){
 //Move the robot according the cmd_velocity
 void Robot::moveRobot(geometry_msgs__msg__Twist *cmdvel_msg, unsigned long prev_cmd_time){
     // braking if there's no command received after 200ms
-    if((millis()-prev_cmd_time)>=200){
+    if((millis()-prev_cmd_time)>=100){
       velReq.left = 0.0;
       velReq.right = 0.0;
     }
@@ -124,9 +120,15 @@ void Robot::moveRobot(geometry_msgs__msg__Twist *cmdvel_msg, unsigned long prev_
     }
     
     getRobotVelocity();
-
-    int controlValueLeft =  M1pid.update(velReq.left, velActual.left, velUpdateTime);
-    int controlValueRight = M2pid.update(velReq.right, velActual.right, velUpdateTime);
+    bool coastflag;
+    if((velReq.left == 0 || velReq.right == 0) && (abs(velActual.left)< 0.25 || abs(velActual.right)< 0.25)){
+      coastflag = 1;
+    }
+    else{
+      coastflag = 0;
+    }
+    int controlValueLeft =  M1pid.update(velReq.left, velActual.left, velUpdateTime, coastflag);
+    int controlValueRight = M2pid.update(velReq.right, velActual.right, velUpdateTime, coastflag);
   
     if(controlValueRight >= 0 )
         roboclaw->ForwardM2(address, controlValueRight);
@@ -150,24 +152,29 @@ void Robot::setSpeed(geometry_msgs__msg__Twist *cmdvelMsg, unsigned long prevCmd
       velReq.right = 0.0;
     }
     else{
-      /*velReq.left =  cmdvelMsg->linear.x;
-      velReq.right = cmdvelMsg->linear.y;   
-
-      */
+      velReq.left =  (int)cmdvelMsg->linear.x;
+      velReq.right = (int)cmdvelMsg->angular.z;   
+      /*
       velReq.left = (cmdvelMsg->linear.x - (cmdvelMsg->angular.z*(trackWidth/2)));
       velReq.right = (cmdvelMsg->linear.x + (cmdvelMsg->angular.z*(trackWidth/2)));
-       
+      */
     }
     
     getRobotVelocity();
 
+    int controlValueLeft  = velReq.left;
+    int controlValueRight  =  velReq.right;
     /*
-    controlValue.left = velReq.left;
-    controlValue.right =  velReq.right;
+    bool coastflag;
+    if((velReq.left == 0 || velReq.right == 0) && (abs(velActual.left)< 0.25 || abs(velActual.right)< 0.25)){
+        coastflag = 1;
+    }
+    else{
+      coastflag = 0;
+    }
+    int controlValueLeft =  M1pid.update(velReq.left, velActual.left, velUpdateTime, coastflag);
+    int controlValueRight = M2pid.update(velReq.right, velActual.right, velUpdateTime, coastflag);
     */
-    int controlValueLeft =  M1pid.update(velReq.left, velActual.left, velUpdateTime);
-    int controlValueRight = M2pid.update(velReq.right, velActual.right, velUpdateTime);
-    
     if(controlValueRight >= 0 )
        roboclaw->ForwardM2(address, controlValueRight);
     else
@@ -176,14 +183,15 @@ void Robot::setSpeed(geometry_msgs__msg__Twist *cmdvelMsg, unsigned long prevCmd
         roboclaw->ForwardM1(address, controlValueLeft);
     else
         roboclaw->BackwardM1(address, -controlValueLeft);
-   
-    velMsg->linear.x = velReq.left;
-    velMsg->linear.y = velActual.left;
-    velMsg->linear.z = controlValueLeft;
-    velMsg->angular.x = velReq.right;
-    velMsg->angular.y = velActual.right;
-    velMsg->angular.z = controlValueRight;
+    
+    roboclaw->ReadCurrents(address, M1current, M2current);
 
+    velMsg->linear.x = controlValueLeft;
+    velMsg->linear.y = velActual.left;
+    velMsg->linear.z = (double)M1current;
+    velMsg->angular.x = controlValueRight;
+    velMsg->angular.y = velActual.right;
+    velMsg->angular.z = (double)M2current;
 }
 
 //roll, yaw and pitch are in rad/sec

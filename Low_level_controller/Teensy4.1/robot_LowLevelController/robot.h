@@ -38,6 +38,7 @@ private:
     double  xPos = 0.0, yPos = 0.0, theta = 0.0;
     unsigned long prevVelTime = 0.0, prevOdomTime = 0.0;
     uint32_t baudrate = 115200;
+    int16_t M1current = 0.0, M2current = 0.0;
 
     RoboClaw *roboclaw;
     QuadEncoder *leftEncoder , *rightEncoder;
