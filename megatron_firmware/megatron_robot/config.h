@@ -21,7 +21,7 @@ MOTOR1  MOTOR2
 */
 
 /* Robot Kinematics */
-#define WHEEL_RADIUS 0.15 // wheel radius in meters
+#define WHEEL_RADIUS 0.135 // wheel radius in meters
 #define TRACK_WIDTH 0.525 // distance between left wheel to right wheel
 #define MAX_RPM 150       // Max rpm for the wheels
 

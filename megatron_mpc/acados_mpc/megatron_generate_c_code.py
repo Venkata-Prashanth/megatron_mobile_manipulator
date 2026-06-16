@@ -6,8 +6,8 @@ import os
 from casadi import diagcat, vertcat
 
 
-Tf = 5.0  # Define the prediction horizon
-N = 50  # Define the number of discretization steps
+Tf = 1  # Define the prediction horizon
+N = 20  # Define the number of discretization steps
 
 # create ocp object to formulate the OCP
 ocp = AcadosOcp()
@@ -20,16 +20,12 @@ nx = model.x.rows()
 nu = model.u.rows()
 ny_0 = nu
 ny = nx + nu
-ny_e = nx
 
 # set cost
-Q = np.diag([100, 100, 10000, 100, 400])  # [x, y, theta, v, w]
-R = np.diag([10, 1])  # [v_cmd , w_cmd]
+Q = np.diag([400, 400, 13000, 1, 0.1])  # [x, y, theta]
+R = np.diag([10, 500])  # [v_cmd , w_cmd]
 
-Q_e = 10 * Q  # terminal cost
-
-ocp.cost.cost_type = "NONLINEAR_LS"
-ocp.cost.cost_type_e = "NONLINEAR_LS"
+Q_e = 50 * Q  # terminal cost
 
 # path cost
 ocp.cost.cost_type = 'NONLINEAR_LS'
@@ -41,12 +37,16 @@ ocp.cost.W = diagcat(Q, R).full()
 ocp.cost.cost_type_e = 'NONLINEAR_LS'
 ocp.cost.yref_e = np.zeros((nx,))
 ocp.model.cost_y_expr_e = model.x
-ocp.cost.W_e = Q
+ocp.cost.W_e = Q_e
+
+ocp.constraints.lbx_0 = np.zeros(nx)
+ocp.constraints.ubx_0 = np.zeros(nx)
+ocp.constraints.idxbx_0 = np.array([0, 1, 2, 3, 4])
 
 # State constraints
 # lower bounds, the difference in control and state bounds are due to the gain difference
-ocp.constraints.lbx = np.array([-0.8, -4])
-ocp.constraints.ubx = np.array([0.8, 4])  # higher bounds
+ocp.constraints.lbx = np.array([-0.8, -3])
+ocp.constraints.ubx = np.array([0.8, 3])  # higher bounds
 # Index of states in the state vector matrix
 ocp.constraints.idxbx = np.array([3, 4])  # [v, w]
 
@@ -63,10 +63,13 @@ ocp.solver_options.N_horizon = N
 
 # set options
 ocp.solver_options.qp_solver = "PARTIAL_CONDENSING_HPIPM"  # "FULL_CONDENSING_QPOASES"
-ocp.solver_options.nlp_solver_type = "SQP_RTI"
+ocp.solver_options.nlp_solver_type = "SQP"
 ocp.solver_options.hessian_approx = "GAUSS_NEWTON"
 ocp.solver_options.integrator_type = "ERK"
 ocp.solver_options.globalization = 'MERIT_BACKTRACKING' 
+ocp.solver_options.tol = 1e-6       # general solver tolerance
+ocp.solver_options.qp_tol = 1e-6    # QP solver tolerance
+ocp.solver_options.max_iter = 100
 
 
 acados_ocp_solver = AcadosOcpSolver(ocp)

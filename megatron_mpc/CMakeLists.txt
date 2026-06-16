@@ -41,6 +41,7 @@ ament_target_dependencies(mpc_controller_node
   rclcpp
   lifecycle_msgs
   rclcpp_lifecycle
+  tf2_geometry_msgs
   geometry_msgs
   nav_msgs
   tf2
@@ -84,7 +85,7 @@ install(TARGETS
   DESTINATION lib/${PROJECT_NAME})
 
 
-install(FILES data/reference_traj_kinematics.csv
+install(DIRECTORY data/
         DESTINATION share/${PROJECT_NAME}/data)
 
 install(FILES
