@@ -20,16 +20,15 @@ public:
                       std::placeholders::_1));
 
     watchdog_timer_ = this->create_wall_timer(
-        200ms, std::bind(&robotModel::watchdog_callback, this));
+        100ms, std::bind(&robotModel::watchdog_callback, this));
 
     publisher_odom_ =
         this->create_publisher<nav_msgs::msg::Odometry>("/odom", 10);
 
     tf_broadcaster_ = std::make_unique<tf2_ros::TransformBroadcaster>(*this);
 
-    timer_ =
-        this->create_wall_timer(100ms,
-                                std::bind(&robotModel::update_odom, this));
+    last_time_ = this->get_clock()->now();
+
   }
 
 private:
@@ -39,19 +38,33 @@ private:
     // Get cmd_vel values
     v_cmd_ = msg->linear.x;
     w_cmd_ = msg->angular.z;
+
+    // Compute elapsed time
+    rclcpp::Time now = this->get_clock()->now();
+    double dt = (now - last_time_).seconds();
+    last_time_ = now;
+
+    update_odom(dt);
   }
 
   void watchdog_callback(){
     v_cmd_ = 0.0;
     w_cmd_ = 0.0;
   }
-  void update_odom() {
+  void update_odom(double dt) {
     // Update state using model equations
-    double dv_q = (-1.809 * v_q_) + (1.738 * v_cmd_);
-    double dw_q = (-1.373 * w_q_) + ( 0.8597* w_cmd_);
 
-    v_q_ += dv_q * 0.1; // Update velocity (assuming time step of 0.1s)
-    w_q_ += dw_q * 0.1; // Update angular velocity
+    double v_applied = (fabs(v_cmd_) > 0.2) ? v_cmd_ : 0.0;
+    double w_applied = (fabs(w_cmd_) > 3.0) ? w_cmd_ : 0.0;
+
+    double dv_q = (-1.809 * v_q_) + (1.738 * v_applied);
+    double dw_q = (-1.373 * w_q_) + ( 0.8597* w_applied ); 
+
+    // double dv_q = (-1.809 * v_q_) + (1.738 * v_cmd_);
+    // double dw_q = (-1.373 * w_q_) + ( 0.8597* w_cmd_ );
+
+    v_q_ += dv_q * dt; // Update velocity (assuming time step of 0.1s)
+    w_q_ += dw_q * dt; // Update angular velocity
 
     // Compute position and orientation changes
     double dx_q = v_q_ * std::cos(theta_q_);
@@ -59,9 +72,9 @@ private:
     double dtheta_q = w_q_;
 
     // Update the robot's state
-    x_q_ += dx_q * 0.1;
-    y_q_ += dy_q * 0.1;
-    theta_q_ += dtheta_q * 0.1;
+    x_q_ += dx_q * dt;
+    y_q_ += dy_q * dt;
+    theta_q_ += dtheta_q * dt;
 
     // Publish the odom message
     nav_msgs::msg::Odometry odom_msg;
@@ -101,13 +114,14 @@ private:
   double x_q_, y_q_, theta_q_;
   double v_q_, w_q_;
   double v_cmd_, w_cmd_;
+  rclcpp::Time last_time_;
   
   // ROS 2 Subscribers, Publishers, and Timers
   rclcpp::Subscription<geometry_msgs::msg::Twist>::SharedPtr
       subscription_cmd_vel_;
   rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr publisher_odom_;
   std::unique_ptr<tf2_ros::TransformBroadcaster> tf_broadcaster_;
-  rclcpp::TimerBase::SharedPtr timer_, watchdog_timer_;
+  rclcpp::TimerBase::SharedPtr watchdog_timer_;
 };
 
 int main(int argc, char **argv) {

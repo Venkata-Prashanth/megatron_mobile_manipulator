@@ -139,7 +139,7 @@ void callee_script(
     std::shared_ptr<LifecycleServiceClient> lifecycle_service_client_node) {
 
   auto time_between_state_changes = 5s; 
-  auto solve_time = 14900ms;  //MPC 
+  auto solve_time = 28000ms;  //MPC 
 
   // configure
   {

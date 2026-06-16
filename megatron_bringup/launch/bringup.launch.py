@@ -62,6 +62,14 @@ def generate_launch_description():
         Node(
             package='tf2_ros',
             executable='static_transform_publisher',
+            name='base_link',
+            arguments=['0', '0', '0.0135', '0',
+                       '0', '0', 'base_footprint', 'base_link']
+        ),
+
+        Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
             name='imu_link',
             arguments=['0.254', '0', '0', '0',
                        '0', '0', 'base_link', 'imu_link']
@@ -70,7 +78,7 @@ def generate_launch_description():
         Node(
             package='imu_filter_madgwick',
             executable='imu_filter_madgwick_node',
-            name='imu_filter',
+            name='imu_filter_madgwick',
             output='screen',
             parameters=[imu_config_path]
         ),
@@ -82,6 +90,7 @@ def generate_launch_description():
             output='screen',
             parameters=[
                 ekf_config_path
-            ]
+            ],
+            remappings=[('/odometry/filtered' , '/odom')]
         )
     ])

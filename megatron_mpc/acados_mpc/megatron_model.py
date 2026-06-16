@@ -1,5 +1,5 @@
 from acados_template import AcadosModel
-from casadi import SX, vertcat, cos, sin
+from casadi import SX, vertcat, cos, sin, tanh, fabs
 
 
 def export_robot_model() -> AcadosModel:
@@ -16,6 +16,7 @@ def export_robot_model() -> AcadosModel:
     v_q = SX.sym('v')  # linear velocity of the robot (meters/sec)
     w_q = SX.sym('w')  # angular velocity of the robot (rad/sec)
     x = vertcat(x_q, y_q, theta_q, v_q, w_q)  # state vector matrix
+    # x = vertcat(x_q, y_q, theta_q)
 
     # controls sent to the robot PID
 

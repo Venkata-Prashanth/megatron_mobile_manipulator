@@ -30,6 +30,7 @@
 #include "nav_msgs/msg/odometry.hpp"
 #include "tf2/LinearMath/Matrix3x3.hpp"
 #include "tf2/LinearMath/Quaternion.hpp"
+#include "tf2_geometry_msgs/tf2_geometry_msgs.hpp"
 
 // acados
 #include "acados/utils/math.h"
@@ -43,12 +44,14 @@
 #include "blasfeo/include/blasfeo_d_aux.h"
 #include "blasfeo/include/blasfeo_d_aux_ext_dep.h"
 
-#define NX MEGATRON_NX
 #define NP MEGATRON_NP
 #define NU MEGATRON_NU
 #define NBX0 MEGATRON_NBX0
 #define N MEGATRON_N
 #define NY MEGATRON_NY
+
+// #define NX MEGATRON_NX //change this for velocity tracking using all the states
+#define NX 3
 
 using namespace std::chrono_literals;
 using std::placeholders::_1;
@@ -74,12 +77,15 @@ public:
     publisher_cmdVel_ =
         this->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 5);
 
+    publisher_refStates_ =
+        this->create_publisher<nav_msgs::msg::Odometry>("/ref_states", 5);
+
     subscription_odometry_ = this->create_subscription<nav_msgs::msg::Odometry>(
         "/odom", 5, std::bind(&NMPC::odom_topic_callback, this, _1));
 
     timer_mpc_ = this->create_wall_timer(
-        100ms, std::bind(&NMPC::solve_mpc_callback, this));
-
+        20ms, std::bind(&NMPC::solve_mpc_callback, this));
+        
     timer_mpc_->cancel(); // Pausing without destroying the object
 
     try {
@@ -104,7 +110,7 @@ public:
 
     std::string pkg_path =
         ament_index_cpp::get_package_share_directory("megatron_mpc");
-    std::string filename_ = pkg_path + "/data/reference_traj_kinematics.csv";
+    std::string filename_ = pkg_path + "/data/curve_dynamics_20ms.csv";
 
     // Load reference
     yref_full_ = get_reference(filename_);
@@ -118,7 +124,8 @@ public:
 
   CallbackReturn on_activate(const rclcpp_lifecycle::State &) {
 
-    publisher_cmdVel_->on_activate(); // Activate to publish messages
+    publisher_cmdVel_->on_activate();    // Activate to publish messages
+    publisher_refStates_->on_activate(); // Activate to publish messages
 
     timer_mpc_->reset(); // Reset the time to start solving the mpc
 
@@ -136,6 +143,7 @@ public:
     // Pausing without destroying the object
     timer_mpc_->cancel();
     publisher_cmdVel_->on_deactivate();
+    publisher_refStates_->on_deactivate();
 
     subscription_odometry_
         .reset(); // Reset to release resources and stop receiving msgs
@@ -151,6 +159,7 @@ public:
     // Reset to release resources
     timer_mpc_.reset();
     publisher_cmdVel_.reset();
+    publisher_refStates_.reset();
     subscription_odometry_.reset();
 
     status_ = megatron_acados_free(acados_capsule_);
@@ -176,6 +185,7 @@ public:
     // Reset to release resources
     timer_mpc_.reset();
     publisher_cmdVel_.reset();
+    publisher_refStates_.reset();
     subscription_odometry_.reset();
 
     RCLCPP_INFO(get_logger(), "NMPC node shutting down...");
@@ -213,8 +223,6 @@ private:
     cmd_vel_result = solve_nmpc(); // Solve MPC for control input
 
     publisher_cmdVel_->publish(cmd_vel_result);
-    RCLCPP_INFO(this->get_logger(), "odom state %f and cmd vel %f",
-                current_state.pose.pose.position.x, cmd_vel_result.linear.x);
 
     horizon_step_++; // incrementing the step for moving horizon
   };
@@ -226,17 +234,22 @@ private:
     ocp_nlp_constraints_model_set(nlp_config, nlp_dims, nlp_in, nlp_out, 0,
                                   "lbx", x_init_);
     ocp_nlp_constraints_model_set(nlp_config, nlp_dims, nlp_in, nlp_out, 0,
-                                  "ubx", x_init_);
+                                  "ubx", x_init_);                               
 
     // Loop to update the yref for the next 50 steps from the horizon step.
     for (int j = 0; j < N; j++) {
       int global_idx = horizon_step_ + j;
       if (global_idx < yref_full_.rows()) {
         Eigen::VectorXd stage_ref = yref_full_.row(global_idx);
+
         ocp_nlp_cost_model_set(nlp_config, nlp_dims, nlp_in, j, "yref",
                                stage_ref.data());
       } else {
+        // If we run out of path, set yref to the last known point
         RCLCPP_ERROR(this->get_logger(), "Index out of bounds");
+        Eigen::VectorXd last_ref = yref_full_.bottomRows(1).transpose();
+        ocp_nlp_cost_model_set(nlp_config, nlp_dims, nlp_in, j, "yref",
+                               last_ref.data());
       }
     }
     // Last Stage (Terminal)
@@ -278,6 +291,25 @@ private:
     control_out.linear.x = u_out_[0];
     control_out.angular.z = u_out_[1];
 
+
+    Eigen::VectorXd first_ref = yref_full_.row(horizon_step_);
+
+    auto ref_state_msg = nav_msgs::msg::Odometry();
+
+    ref_state_msg.header.stamp = this->get_clock()->now();
+
+    // Set Position
+    ref_state_msg.pose.pose.position.x = first_ref(0);
+    ref_state_msg.pose.pose.position.y = first_ref(1);
+
+    tf2::Quaternion q;
+    q.setRPY(0, 0, first_ref(2)); // theta (yaw)
+    ref_state_msg.pose.pose.orientation.x = q.x();
+    ref_state_msg.pose.pose.orientation.y = q.y();
+    ref_state_msg.pose.pose.orientation.z = q.z();
+    ref_state_msg.pose.pose.orientation.w = q.w();
+
+    publisher_refStates_->publish(ref_state_msg);
     return control_out;
   }
 
@@ -287,7 +319,8 @@ private:
     std::ifstream file(filename);
 
     if (!file.is_open()) {
-      std::cerr << "Error opening file: " << filename << std::endl;
+      RCLCPP_FATAL(this->get_logger(), "Error opening file: %s",
+                   filename.c_str());
       return Eigen::MatrixXd(); // return empty matrix on error
     }
 
@@ -338,6 +371,9 @@ private:
   rclcpp_lifecycle::LifecyclePublisher<geometry_msgs::msg::Twist>::SharedPtr
       publisher_cmdVel_; // publisher object declaration
 
+  rclcpp_lifecycle::LifecyclePublisher<nav_msgs::msg::Odometry>::SharedPtr
+      publisher_refStates_; // publisher object declaration
+
   rclcpp::TimerBase::SharedPtr timer_mpc_; // timer object declaration
 
   rclcpp::Subscription<nav_msgs::msg::Odometry>::SharedPtr
@@ -375,9 +411,6 @@ private:
 
   int horizon_step_; // variable used to move the horizon after every timestep
 
-  // reference trajectory acados require 7 values, 5 states and 2 control inputs
-  // Size of the Matrix is Total {[(run time* discrete steps per second) +
-  // (horizon steps +1) ]* yref states} {[( 10s*10) +(50 +1)]*7}
   Eigen::MatrixXd yref_full_;
 };
 
